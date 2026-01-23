@@ -1,0 +1,17 @@
+# Daily startup configuration
+---
+name: Daily
+windows:
+  - tabs:
+      - title: claude
+        layout:
+          cwd: ~
+          commands:
+            - exec: claude
+        color: purple
+      - title: maintenance
+        layout:
+          cwd: ~
+          commands:
+            - exec: task backup && task update
+        color: green
