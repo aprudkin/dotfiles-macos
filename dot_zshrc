@@ -1,0 +1,29 @@
+export PATH="$HOME/.local/bin:$PATH"
+autoload -Uz compinit && compinit
+zstyle ':completion:*' matcher-list 'm:{a-zA-Z}={A-Za-z}'
+
+# bun completions
+[ -s "/Users/alexeyprudkin/.bun/_bun" ] && source "/Users/alexeyprudkin/.bun/_bun"
+
+# bun
+export BUN_INSTALL="$HOME/.bun"
+export PATH="$BUN_INSTALL/bin:$PATH"
+# Load GitHub tokens from pass (encrypted password store)
+export GITHUB_TOKEN="$(pass github/GITHUB_TOKEN 2>/dev/null)"
+export GH_TOKEN="$(pass github/GH_TOKEN 2>/dev/null)"
+export PATH="/opt/homebrew/bin:$PATH"
+
+# starship prompt
+eval "$(starship init zsh)"
+
+# fzf
+source <(fzf --zsh)
+
+# go-task: short alias for global tasks
+alias t="command task --global"
+
+# eza (замена ls с иконками)
+alias ls="eza --icons=always --no-quotes"
+alias ll="eza --icons=always --no-quotes -la"
+alias la="eza --icons=always --no-quotes -a"
+alias lt="eza --icons=always --no-quotes --tree"

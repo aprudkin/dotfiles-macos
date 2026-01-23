@@ -1,0 +1,12 @@
+format = """
+$directory
+$character"""
+
+[directory]
+style = "cyan"
+truncation_length = 3
+truncate_to_repo = false
+
+[character]
+success_symbol = "[›](green)"
+error_symbol = "[›](red)"

@@ -1,0 +1,49 @@
+[core]
+	excludesfile = /Users/alexy/.gitignore_global
+	editor = code --wait
+[init]
+	defaultBranch = main
+[commit]
+	gpgSign = false
+[pull]
+	rebase = false
+[gui]
+	pruneduringfetch = true
+[smartgit "submodule"]
+	fetchalways = false
+	update = true
+	initializenew = true
+[push]
+	recurseSubmodules = check
+	autoSetupRemote = true
+[user]
+	name = Alexey Prudkin
+	email = a.prudkin@avosend.com
+[alias]
+	br = branch
+	cg = config --edit --global
+	cl = config --edit --local
+	co = commit
+	ch = checkout
+	g = log --graph --abbrev-commit --decorate --all --format=format:'%C(bold blue)%h%C(reset) - %C(bold cyan)%aD%C(dim white) - %an%C(reset) %C(bold green)(%ar)%C(reset)%C(bold yellow)%d%C(reset)%n %C(white)%s%C(reset)'
+	l = log --oneline --graph --decorate --all
+	s = status --short
+	st = status
+	pushall = !git push origin && git push gitlab
+	pullall = !git pull origin && git pull gitlab
+	fetchall = !git fetch origin && git fetch gitlab
+[merge]
+	conflictStyle = diff3
+[rebase]
+	missingCommitsCheck = warn
+[filter "lfs"]
+	clean = git-lfs clean -- %f
+	smudge = git-lfs smudge -- %f
+	process = git-lfs filter-process
+	required = true
+[credential "https://github.com"]
+	helper = 
+	helper = !/opt/homebrew/bin/gh auth git-credential
+[credential "https://gist.github.com"]
+	helper = 
+	helper = !/opt/homebrew/bin/gh auth git-credential
