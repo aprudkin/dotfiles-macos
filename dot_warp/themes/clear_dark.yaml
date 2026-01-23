@@ -2,7 +2,7 @@
 # Based on macOS Terminal "Clear Dark" profile
 name: "Clear Dark"
 accent: "#4a90d9"
-background: "#1a1a1a"
+background: "#191d27"
 foreground: "#e5e5e5"
 details: darker
 terminal_colors:
