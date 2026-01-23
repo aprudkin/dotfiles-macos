@@ -1,0 +1,154 @@
+version: '3'
+
+tasks:
+  macos:nosleep:
+    desc: "Prevent macOS from sleeping for N hours (display will dim as usual)"
+    summary: |
+      Usage: task macos:nosleep -- <hours>
+
+      Prevents system idle sleep while allowing display to turn off.
+      Uses macOS built-in 'caffeinate' utility with -i flag.
+
+      Examples:
+        task macos:nosleep -- 2      # 2 hours
+        task macos:nosleep -- 0.5    # 30 minutes
+    vars:
+      HOURS: '{{.CLI_ARGS | default "1"}}'
+    cmds:
+      - |
+        hours={{.HOURS}}
+        seconds=$(echo "$hours * 3600" | bc | cut -d. -f1)
+
+        echo "☕ Keeping macOS awake for $hours hour(s) ($seconds seconds)"
+        echo "   Display will dim/sleep as usual"
+        echo "   Press Ctrl+C to stop"
+        echo ""
+
+        caffeinate -i -t $seconds
+
+        echo "✓ Done! macOS can sleep now."
+    interactive: true
+    silent: true
+
+  macos:nosleep:stop:
+    desc: "Stop all caffeinate processes"
+    cmds:
+      - pkill caffeinate 2>/dev/null && echo "✓ Stopped" || echo "Not running"
+    silent: true
+
+  yadisk:sync:
+    desc: "Sync current directory to Yandex Disk"
+    vars:
+      # Exclude service files, keep configs (.env, .gitignore, etc.)
+      FILTER: >-
+        --exclude .DS_Store
+        --exclude .git/
+        --exclude ".Trash*"
+        --exclude Thumbs.db
+        --exclude node_modules/
+        --exclude __pycache__/
+        --exclude "*.pyc"
+        --exclude .idea/
+        --exclude .vscode/
+      DIR: "{{.USER_WORKING_DIR}}"
+    cmds:
+      - |
+        dirname=$(basename "{{.DIR}}")
+        remote="yadisk:/$dirname"
+        echo "📁 Syncing: {{.DIR}} → $remote"
+        rclone sync "{{.DIR}}" "$remote" {{.FILTER}} --progress
+        echo "✓ Done!"
+    interactive: true
+    silent: true
+
+  yadisk:sync:dry:
+    desc: "Dry-run: show what would be synced"
+    vars:
+      FILTER: >-
+        --exclude .DS_Store
+        --exclude .git/
+        --exclude ".Trash*"
+        --exclude Thumbs.db
+        --exclude node_modules/
+        --exclude __pycache__/
+        --exclude "*.pyc"
+        --exclude .idea/
+        --exclude .vscode/
+      DIR: "{{.USER_WORKING_DIR}}"
+    cmds:
+      - |
+        dirname=$(basename "{{.DIR}}")
+        remote="yadisk:/$dirname"
+        echo "📁 [DRY RUN] {{.DIR}} → $remote"
+        rclone sync "{{.DIR}}" "$remote" {{.FILTER}} --progress --dry-run
+    interactive: true
+    silent: true
+
+  yadisk:del:
+    desc: "Delete current directory from Yandex Disk"
+    vars:
+      DIR: "{{.USER_WORKING_DIR}}"
+    cmds:
+      - |
+        dirname=$(basename "{{.DIR}}")
+        remote="yadisk:/$dirname"
+        echo "🗑️  Deleting: $remote"
+        rclone purge "$remote" --progress
+        echo "✓ Deleted!"
+    prompt: "This will PERMANENTLY DELETE yadisk:/{{.USER_WORKING_DIR | base}}/ Continue?"
+    interactive: true
+    silent: true
+
+  yadisk:list:
+    desc: "List folders on Yandex Disk root"
+    cmds:
+      - rclone lsd yadisk:/
+    silent: true
+
+  # === Cudy AX3000 Router ===
+
+  cudy:pass:on:
+    desc: "Enable SSH password authentication on Cudy router"
+    cmds:
+      - |
+        ssh cudy 'uci set dropbear.@dropbear[0].PasswordAuth=on && \
+                  uci set dropbear.@dropbear[0].RootPasswordAuth=on && \
+                  uci commit dropbear && \
+                  /etc/init.d/dropbear restart'
+        echo "✓ Password auth enabled"
+    silent: true
+
+  cudy:pass:off:
+    desc: "Disable SSH password authentication on Cudy router"
+    cmds:
+      - |
+        ssh cudy 'uci set dropbear.@dropbear[0].PasswordAuth=off && \
+                  uci set dropbear.@dropbear[0].RootPasswordAuth=off && \
+                  uci commit dropbear && \
+                  /etc/init.d/dropbear restart'
+        echo "✓ Password auth disabled (key-only)"
+    silent: true
+
+  cudy:backup:
+    desc: "Backup Cudy router config to ~/dev/cudy-sandbox/backup/"
+    vars:
+      BACKUP_DIR: "{{.HOME}}/dev/cudy-sandbox/backup"
+    cmds:
+      - |
+        echo "📦 Creating backup..."
+        ssh cudy 'sysupgrade -b /tmp/backup.tar.gz'
+        ssh cudy 'cat /tmp/backup.tar.gz' > {{.BACKUP_DIR}}/sysupgrade-backup.tar.gz
+        echo "✓ Saved to {{.BACKUP_DIR}}/sysupgrade-backup.tar.gz"
+    silent: true
+
+  cudy:restore:
+    desc: "Restore Cudy router config from backup"
+    vars:
+      BACKUP_DIR: "{{.HOME}}/dev/cudy-sandbox/backup"
+    cmds:
+      - |
+        echo "⚠️  Restoring config from {{.BACKUP_DIR}}/sysupgrade-backup.tar.gz"
+        cat {{.BACKUP_DIR}}/sysupgrade-backup.tar.gz | ssh cudy 'cat > /tmp/backup.tar.gz && sysupgrade -r /tmp/backup.tar.gz'
+        echo "✓ Config restored. Reboot router to apply: ssh cudy reboot"
+    prompt: "This will overwrite current router config. Continue?"
+    silent: true
