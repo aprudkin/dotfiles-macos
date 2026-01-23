@@ -1,0 +1,26 @@
+# Clear Dark theme for Warp
+# Based on macOS Terminal "Clear Dark" profile
+name: "Clear Dark"
+accent: "#4a90d9"
+background: "#1a1a1a"
+foreground: "#e5e5e5"
+details: darker
+terminal_colors:
+  normal:
+    black: "#000000"
+    red: "#c91b00"
+    green: "#00c200"
+    yellow: "#c7c400"
+    blue: "#0225c7"
+    magenta: "#c930c7"
+    cyan: "#00c5c7"
+    white: "#c7c7c7"
+  bright:
+    black: "#686868"
+    red: "#ff6e67"
+    green: "#5ffa68"
+    yellow: "#fffc67"
+    blue: "#6871ff"
+    magenta: "#ff77ff"
+    cyan: "#60fdff"
+    white: "#ffffff"
