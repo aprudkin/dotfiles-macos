@@ -27,3 +27,6 @@ alias ls="eza --icons=always --no-quotes"
 alias ll="eza --icons=always --no-quotes -la"
 alias la="eza --icons=always --no-quotes -a"
 alias lt="eza --icons=always --no-quotes --tree"
+
+# chezmoi: синхронизация dotfiles
+alias dotpush='chezmoi re-add && chezmoi git -- add -A && chezmoi git -- commit -m "Update dotfiles" && chezmoi git -- push'
