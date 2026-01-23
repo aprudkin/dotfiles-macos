@@ -4,14 +4,14 @@ name: Daily
 windows:
   - tabs:
       - title: claude
+        color: purple
         layout:
           cwd: ~
           commands:
             - exec: claude
-        color: purple
       - title: maintenance
+        color: green
         layout:
           cwd: ~
           commands:
             - exec: task backup && task update
-        color: green
