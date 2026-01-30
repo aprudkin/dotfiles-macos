@@ -19,8 +19,8 @@ eval "$(starship init zsh)"
 # fzf
 source <(fzf --zsh)
 
-# go-task: short alias for global tasks
-alias t="command task --global"
+# go-task: short alias for global tasks (noglob для URL с ?si=...)
+alias t="noglob command task --global"
 
 # eza (замена ls с иконками)
 alias ls="eza --icons=always --no-quotes"
@@ -30,3 +30,9 @@ alias lt="eza --icons=always --no-quotes --tree"
 
 # chezmoi: синхронизация dotfiles
 alias dotpush='chezmoi re-add && chezmoi git -- add -A && chezmoi git -- commit -m "Update dotfiles" && chezmoi git -- push'
+
+# SOPS age key
+export SOPS_AGE_KEY_FILE="$HOME/.config/chezmoi/key.txt"
+
+# Warp: Claude Workspace
+alias cw='open "warp://action/launch_configuration?path=$HOME/.warp/launch_configurations/claude-workspace.yaml"'

@@ -11,7 +11,31 @@
     "defaultMode": "acceptEdits"
   },
   "enabledPlugins": {
-    "osgrep@osgrep": true
+    "osgrep@osgrep": false
   },
-  "alwaysThinkingEnabled": true
+  "alwaysThinkingEnabled": true,
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/alexeyprudkin/.claude/hooks/osgrep-start.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/alexeyprudkin/.claude/hooks/osgrep-end.sh",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
 }

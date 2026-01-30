@@ -1,17 +1,15 @@
-# Daily startup configuration
----
 name: Daily
 windows:
   - tabs:
       - title: claude
-        color: purple
+        color: Magenta
         layout:
-          cwd: ~
+          cwd: /Users/alexeyprudkin
           commands:
             - exec: claude
       - title: maintenance
-        color: green
+        color: Green
         layout:
-          cwd: ~
+          cwd: /Users/alexeyprudkin
           commands:
             - exec: task backup && task update

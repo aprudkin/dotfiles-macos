@@ -36,10 +36,49 @@ tasks:
       - pkill caffeinate 2>/dev/null && echo "✓ Stopped" || echo "Not running"
     silent: true
 
+  macos:lid:disable:
+    desc: "Disable lid sleep (Mac won't sleep when closing lid)"
+    summary: |
+      Allows closing the lid without Mac going to sleep.
+      Useful when you need the Mac running with lid closed but no external display.
+
+      Requires sudo. Remember to re-enable with: task macos:lid:enable
+    cmds:
+      - |
+        sudo pmset -a disablesleep 1 displaysleep 10
+        echo "✓ Lid sleep disabled"
+        echo "  Mac will NOT sleep when you close the lid"
+        echo "  Display will turn off after 10 minutes"
+        echo "  Run 'task macos:lid:enable' to restore normal behavior"
+    interactive: true
+    silent: true
+
+  macos:lid:enable:
+    desc: "Enable lid sleep (restore normal behavior)"
+    cmds:
+      - |
+        sudo pmset -a disablesleep 0 displaysleep 60
+        echo "✓ Lid sleep enabled"
+        echo "  Mac will sleep normally when you close the lid"
+        echo "  Display timeout restored to 60 minutes"
+    interactive: true
+    silent: true
+
+  macos:lid:status:
+    desc: "Check current lid sleep status"
+    cmds:
+      - |
+        status=$(pmset -g | grep disablesleep | awk '{print $2}')
+        if [ "$status" = "1" ]; then
+          echo "🔓 Lid sleep: DISABLED (Mac stays awake with lid closed)"
+        else
+          echo "🔒 Lid sleep: ENABLED (normal behavior)"
+        fi
+    silent: true
+
   yadisk:sync:
-    desc: "Sync current directory to Yandex Disk"
+    desc: "Safe sync: copy to cloud, then offer to delete orphans"
     vars:
-      # Exclude service files, keep configs (.env, .gitignore, etc.)
       FILTER: >-
         --exclude .DS_Store
         --exclude .git/
@@ -50,6 +89,57 @@ tasks:
         --exclude "*.pyc"
         --exclude .idea/
         --exclude .vscode/
+        --exclude .osgrep/
+      DIR: "{{.USER_WORKING_DIR}}"
+    cmds:
+      - |
+        dirname=$(basename "{{.DIR}}")
+        remote="yadisk:/$dirname"
+
+        echo "📁 Copying: {{.DIR}} → $remote"
+        rclone copy "{{.DIR}}" "$remote" {{.FILTER}} --progress
+        echo ""
+        echo "✓ Copy done!"
+        echo ""
+
+        # Find files in cloud but not locally
+        echo "🔍 Checking for orphan files in cloud..."
+        orphans=$(rclone check "{{.DIR}}" "$remote" {{.FILTER}} --one-way --combined - 2>/dev/null | grep "^+ " | sed 's/^+ //')
+
+        if [ -z "$orphans" ]; then
+          echo "✓ No orphan files in cloud"
+        else
+          echo ""
+          echo "⚠️  Files in cloud but not locally:"
+          echo "$orphans" | while IFS= read -r f; do echo "  - $f"; done
+          echo ""
+          read -p "Delete these files from cloud? [y/N] " answer
+          if [ "$answer" = "y" ] || [ "$answer" = "Y" ]; then
+            echo "$orphans" | while IFS= read -r f; do
+              rclone deletefile "$remote/$f" 2>/dev/null && echo "  🗑️  Deleted: $f"
+            done
+            echo "✓ Cleanup done!"
+          else
+            echo "Skipped."
+          fi
+        fi
+    interactive: true
+    silent: true
+
+  yadisk:sync:force:
+    desc: "Force sync (deletes orphans without asking)"
+    vars:
+      FILTER: >-
+        --exclude .DS_Store
+        --exclude .git/
+        --exclude ".Trash*"
+        --exclude Thumbs.db
+        --exclude node_modules/
+        --exclude __pycache__/
+        --exclude "*.pyc"
+        --exclude .idea/
+        --exclude .vscode/
+        --exclude .osgrep/
       DIR: "{{.USER_WORKING_DIR}}"
     cmds:
       - |
@@ -74,6 +164,7 @@ tasks:
         --exclude "*.pyc"
         --exclude .idea/
         --exclude .vscode/
+        --exclude .osgrep/
       DIR: "{{.USER_WORKING_DIR}}"
     cmds:
       - |
@@ -105,32 +196,47 @@ tasks:
       - rclone lsd yadisk:/
     silent: true
 
-  # === Cudy AX3000 Router ===
+  # === Home Network ===
+  # Devices: UDR (192.168.1.1), Cudy (192.168.2.1), Fedora-HP (192.168.2.201)
+  # Config: ~/dev/cudy-sandbox/
+  # SSH: ~/.ssh/config (fedora, udr, cudy hosts)
 
-  cudy:pass:on:
-    desc: "Enable SSH password authentication on Cudy router"
+  home:backup:
+    desc: "Backup home network: UDR, Cudy, Fedora"
+    aliases: [my:backup:ts]
+    vars:
+      BACKUP_DIR: "{{.HOME}}/Backup"
+      DATE:
+        sh: date +%Y%m%d
     cmds:
+      - mkdir -p {{.BACKUP_DIR}}/{udr,cudy,fedora}
       - |
-        ssh cudy 'uci set dropbear.@dropbear[0].PasswordAuth=on && \
-                  uci set dropbear.@dropbear[0].RootPasswordAuth=on && \
-                  uci commit dropbear && \
-                  /etc/init.d/dropbear restart'
-        echo "✓ Password auth enabled"
+        echo "📦 Backing up UDR..."
+        ssh udr 'tar czf - /data/unifi-core/ 2>/dev/null' > {{.BACKUP_DIR}}/udr/unifi-core-{{.DATE}}.tar.gz
+        ssh udr 'tar czf - /data/unifi/ 2>/dev/null' > {{.BACKUP_DIR}}/udr/unifi-network-{{.DATE}}.tar.gz
+        ssh udr 'tar czf - /data/udapi-config/ 2>/dev/null' > {{.BACKUP_DIR}}/udr/udapi-config-{{.DATE}}.tar.gz
+        ssh udr 'cat /etc/os-release; ubnt-device-info summary 2>/dev/null; uptime' > {{.BACKUP_DIR}}/udr/system-info-{{.DATE}}.txt
+        echo "✓ UDR done"
+      - |
+        echo "📦 Backing up Cudy..."
+        ssh fedora 'ssh -i ~/.ssh/luk root@192.168.2.1 "sysupgrade -b /tmp/backup.tar.gz && cat /tmp/backup.tar.gz"' > {{.BACKUP_DIR}}/cudy/sysupgrade-backup-{{.DATE}}.tar.gz
+        echo "✓ Cudy done"
+      - |
+        echo "📦 Backing up Fedora..."
+        ssh fedora 'tar czf - .ssh/' > {{.BACKUP_DIR}}/fedora/ssh-config-{{.DATE}}.tar.gz
+        ssh fedora 'tar czf - .zshrc .config/starship.toml .config/alacritty 2>/dev/null' > {{.BACKUP_DIR}}/fedora/dotfiles-{{.DATE}}.tar.gz
+        ssh fedora 'uname -a; cat /etc/os-release; rpm-ostree status' > {{.BACKUP_DIR}}/fedora/system-info-{{.DATE}}.txt
+        ssh fedora 'flatpak list --app --columns=application' > {{.BACKUP_DIR}}/fedora/flatpak-apps-{{.DATE}}.txt 2>/dev/null
+        echo "✓ Fedora done"
+      - |
+        echo ""
+        echo "📁 Backup complete:"
+        ls -lh {{.BACKUP_DIR}}/udr/*{{.DATE}}* {{.BACKUP_DIR}}/cudy/*{{.DATE}}* {{.BACKUP_DIR}}/fedora/*{{.DATE}}* 2>/dev/null
     silent: true
 
-  cudy:pass:off:
-    desc: "Disable SSH password authentication on Cudy router"
-    cmds:
-      - |
-        ssh cudy 'uci set dropbear.@dropbear[0].PasswordAuth=off && \
-                  uci set dropbear.@dropbear[0].RootPasswordAuth=off && \
-                  uci commit dropbear && \
-                  /etc/init.d/dropbear restart'
-        echo "✓ Password auth disabled (key-only)"
-    silent: true
-
-  cudy:backup:
-    desc: "Backup Cudy router config to ~/dev/cudy-sandbox/backup/"
+  home:cudy:backup:
+    desc: "Backup Cudy router config"
+    aliases: [cudy:backup]
     vars:
       BACKUP_DIR: "{{.HOME}}/dev/cudy-sandbox/backup"
     cmds:
@@ -141,8 +247,9 @@ tasks:
         echo "✓ Saved to {{.BACKUP_DIR}}/sysupgrade-backup.tar.gz"
     silent: true
 
-  cudy:restore:
+  home:cudy:restore:
     desc: "Restore Cudy router config from backup"
+    aliases: [cudy:restore]
     vars:
       BACKUP_DIR: "{{.HOME}}/dev/cudy-sandbox/backup"
     cmds:
@@ -151,4 +258,434 @@ tasks:
         cat {{.BACKUP_DIR}}/sysupgrade-backup.tar.gz | ssh cudy 'cat > /tmp/backup.tar.gz && sysupgrade -r /tmp/backup.tar.gz'
         echo "✓ Config restored. Reboot router to apply: ssh cudy reboot"
     prompt: "This will overwrite current router config. Continue?"
+    silent: true
+
+  home:cudy:pass:on:
+    desc: "Enable SSH password auth on Cudy"
+    aliases: [cudy:pass:on]
+    cmds:
+      - |
+        ssh cudy 'uci set dropbear.@dropbear[0].PasswordAuth=on && \
+                  uci set dropbear.@dropbear[0].RootPasswordAuth=on && \
+                  uci commit dropbear && \
+                  /etc/init.d/dropbear restart'
+        echo "✓ Password auth enabled"
+    silent: true
+
+  home:cudy:pass:off:
+    desc: "Disable SSH password auth on Cudy (key-only)"
+    aliases: [cudy:pass:off]
+    cmds:
+      - |
+        ssh cudy 'uci set dropbear.@dropbear[0].PasswordAuth=off && \
+                  uci set dropbear.@dropbear[0].RootPasswordAuth=off && \
+                  uci commit dropbear && \
+                  /etc/init.d/dropbear restart'
+        echo "✓ Password auth disabled (key-only)"
+    silent: true
+
+  home:cudy:luci:
+    desc: "Open SSH tunnel to Cudy LuCI web interface"
+    cmds:
+      - |
+        echo "🌐 Opening tunnel to Cudy LuCI..."
+        echo "   Access: http://localhost:8080"
+        echo "   Press Ctrl+C to close"
+        ssh -N -L 8080:192.168.2.1:80 fedora
+    interactive: true
+    silent: true
+
+  home:wg:decrypt:
+    desc: "Decrypt WireGuard config"
+    vars:
+      REPO: "{{.HOME}}/dev/cudy-sandbox"
+      KEY: "{{.HOME}}/.config/chezmoi/key.txt"
+    cmds:
+      - |
+        age -d -i {{.KEY}} -o {{.REPO}}/wireguard/client.conf {{.REPO}}/wireguard/client.conf.age
+        echo "✓ Decrypted to {{.REPO}}/wireguard/client.conf"
+        echo "  Import in WireGuard.app, then delete: rm {{.REPO}}/wireguard/client.conf"
+    silent: true
+
+  home:wg:encrypt:
+    desc: "Encrypt WireGuard config"
+    vars:
+      REPO: "{{.HOME}}/dev/cudy-sandbox"
+      RECIPIENT: "age1jlpq3zt9uwaws9khc8kw9lj878s8tjh3kxej6wfv8zpuxrknsccs4kgezu"
+    cmds:
+      - |
+        if [ ! -f {{.REPO}}/wireguard/client.conf ]; then
+          echo "❌ No client.conf to encrypt"
+          exit 1
+        fi
+        age -r {{.RECIPIENT}} -o {{.REPO}}/wireguard/client.conf.age {{.REPO}}/wireguard/client.conf
+        rm {{.REPO}}/wireguard/client.conf
+        echo "✓ Encrypted and removed plaintext"
+    silent: true
+
+  home:creds:
+    desc: "Show decrypted credentials"
+    vars:
+      REPO: "{{.HOME}}/dev/cudy-sandbox"
+    cmds:
+      - sops -d {{.REPO}}/secrets/credentials.json | jq .
+    silent: true
+
+  home:creds:edit:
+    desc: "Edit encrypted credentials"
+    vars:
+      REPO: "{{.HOME}}/dev/cudy-sandbox"
+    cmds:
+      - sops {{.REPO}}/secrets/credentials.json
+    interactive: true
+    silent: true
+
+  # === Whisper Transcription (whisper.cpp) ===
+
+  whisper:
+    desc: "Transcribe MP3 to Markdown (Russian, timestamps + paragraphs)"
+    summary: |
+      Usage: task whisper -- [file.mp3]
+
+      Transcribes audio files to Markdown using whisper.cpp with Metal GPU.
+      Output: .md file with timestamps and paragraphs.
+
+      Examples:
+        task whisper -- recording.mp3    # Single file
+        task whisper                     # All .mp3 in current dir
+    vars:
+      DIR: "{{.USER_WORKING_DIR}}"
+      MODEL: "{{.HOME}}/.local/share/whisper-cpp/ggml-medium.bin"
+    cmds:
+      - cmd: |
+          cd "{{.DIR}}"
+
+          transcribe_file() {
+            local file="$1"
+            local base="${file%.*}"
+            local now=$(date "+%Y-%m-%d %H:%M")
+
+            echo "🎙️ Transcribing (RU): $file"
+            whisper-cli -m "{{.MODEL}}" -l ru -pp -np -sns -ml 500 -of "${base}" -otxt "$file"
+
+            if [ -f "${base}.txt" ]; then
+              cat > "${base}.md" << EOF
+          # Транскрипция: $(basename "$file")
+
+          **Дата:** $now
+          **Язык:** ru
+
+          ---
+
+          $(cat "${base}.txt")
+          EOF
+              rm -f "${base}.txt"
+              echo "✓ $file → ${base}.md"
+            else
+              echo "❌ Failed to transcribe: $file"
+              return 1
+            fi
+          }
+
+          if [ -n "{{.CLI_ARGS}}" ]; then
+            file="{{.CLI_ARGS}}"
+            if [ ! -f "$file" ]; then
+              echo "❌ File not found: $file"
+              exit 1
+            fi
+            transcribe_file "$file"
+          else
+            shopt -s nullglob
+            files=(*.mp3)
+            if [ ${#files[@]} -eq 0 ]; then
+              echo "❌ No .mp3 files found in {{.DIR}}"
+              exit 1
+            fi
+            echo "🎙️ Found MP3 files:"
+            for f in "${files[@]}"; do echo "  - $f"; done
+            echo ""
+            for f in "${files[@]}"; do
+              transcribe_file "$f"
+            done
+          fi
+          echo ""
+          echo "✓ Done!"
+        shell: bash
+    silent: true
+
+  # === YouTube Download (yt-dlp) ===
+
+  youtube:
+    desc: "Download YouTube video (MP4) + extract audio (MP3)"
+    summary: |
+      Usage: task youtube -- <url>
+
+      Downloads video (720p MP4) and extracts MP3 from it (single download).
+      Files saved to ~/ytb/Uploader/YYYYMMDD-Title.{mp4,mp3}
+
+      Features:
+      - SponsorBlock removes sponsor segments
+      - Cookies from Firefox for age-restricted content
+      - Unicode filenames (Cyrillic supported)
+      - Single download, MP3 extracted via ffmpeg
+
+      Examples:
+        task youtube -- https://youtube.com/watch?v=xxx
+        task youtube -- "https://youtu.be/xxx"
+    dir: "{{.HOME}}/ytb"
+    vars:
+      URL: "{{.CLI_ARGS}}"
+    cmds:
+      - |
+        if [ -z "{{.URL}}" ]; then
+          echo "❌ Usage: task youtube -- <url>"
+          exit 1
+        fi
+        echo "📹 Downloading video (720p MP4) + extracting MP3..."
+        yt-dlp \
+          -f "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720][ext=mp4]" \
+          --download-archive downloaded_videos.txt \
+          --merge-output-format mp4 \
+          --cookies-from-browser firefox \
+          --embed-metadata \
+          --embed-chapters \
+          --embed-thumbnail \
+          --no-playlist \
+          --windows-filenames \
+          --sponsorblock-remove sponsor,selfpromo,interaction \
+          -N 4 \
+          -c \
+          -i \
+          -o "%(uploader)s/%(upload_date)s-%(title)s.%(ext)s" \
+          --exec 'f="{}"; ffmpeg -n -i "$f" -vn -acodec libmp3lame -q:a 0 "${f%.*}.mp3" && echo "🎵 Extracted: ${f%.*}.mp3"' \
+          '{{.URL}}'
+        echo ""
+        echo "✓ Done! Files saved to ~/ytb/"
+    silent: true
+
+  youtube:mp4:
+    desc: "Download YouTube video only (720p MP4)"
+    summary: |
+      Usage: task youtube:mp4 -- <url>
+
+      Downloads video in 720p MP4 format.
+      Files saved to ~/ytb/Uploader/YYYYMMDD-Title.mp4
+    dir: "{{.HOME}}/ytb"
+    vars:
+      URL: "{{.CLI_ARGS}}"
+    cmds:
+      - |
+        if [ -z "{{.URL}}" ]; then
+          echo "❌ Usage: task youtube:mp4 -- <url>"
+          exit 1
+        fi
+        echo "📹 Downloading video (720p MP4)..."
+        yt-dlp \
+          -f "bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720][ext=mp4]" \
+          --download-archive downloaded_videos.txt \
+          --merge-output-format mp4 \
+          --cookies-from-browser firefox \
+          --embed-metadata \
+          --embed-chapters \
+          --embed-thumbnail \
+          --no-playlist \
+          --windows-filenames \
+          --sponsorblock-remove sponsor,selfpromo,interaction \
+          -N 4 \
+          -c \
+          -i \
+          -o "%(uploader)s/%(upload_date)s-%(title)s.%(ext)s" \
+          '{{.URL}}'
+        echo ""
+        echo "✓ Done!"
+    silent: true
+
+  youtube:mp3:
+    desc: "Download YouTube audio only (MP3)"
+    summary: |
+      Usage: task youtube:mp3 -- <url>
+
+      Downloads best audio and converts to MP3 (VBR ~245 kbps).
+      Files saved to ~/ytb/Uploader/YYYYMMDD-Title.mp3
+    dir: "{{.HOME}}/ytb"
+    vars:
+      URL: "{{.CLI_ARGS}}"
+    cmds:
+      - |
+        if [ -z "{{.URL}}" ]; then
+          echo "❌ Usage: task youtube:mp3 -- <url>"
+          exit 1
+        fi
+        echo "🎵 Downloading audio (MP3)..."
+        yt-dlp \
+          -f "bestaudio[ext=m4a]/bestaudio" \
+          -x \
+          --audio-format mp3 \
+          --audio-quality 0 \
+          --cookies-from-browser firefox \
+          --embed-metadata \
+          --embed-chapters \
+          --embed-thumbnail \
+          --no-playlist \
+          --windows-filenames \
+          --sponsorblock-remove sponsor,selfpromo,interaction \
+          -N 4 \
+          -c \
+          -i \
+          -o "%(uploader)s/%(upload_date)s-%(title)s.%(ext)s" \
+          '{{.URL}}'
+        echo ""
+        echo "✓ Done!"
+    silent: true
+
+  whisper:en:
+    desc: "Transcribe MP3 to Markdown (English, timestamps + paragraphs)"
+    vars:
+      DIR: "{{.USER_WORKING_DIR}}"
+      MODEL: "{{.HOME}}/.local/share/whisper-cpp/ggml-medium.bin"
+    cmds:
+      - cmd: |
+          cd "{{.DIR}}"
+
+          transcribe_file() {
+            local file="$1"
+            local base="${file%.*}"
+            local now=$(date "+%Y-%m-%d %H:%M")
+
+            echo "🎙️ Transcribing (EN): $file"
+            whisper-cli -m "{{.MODEL}}" -l en -pp -np -sns -ml 500 -of "${base}" -otxt "$file"
+
+            if [ -f "${base}.txt" ]; then
+              cat > "${base}.md" << EOF
+          # Transcription: $(basename "$file")
+
+          **Date:** $now
+          **Language:** en
+
+          ---
+
+          $(cat "${base}.txt")
+          EOF
+              rm -f "${base}.txt"
+              echo "✓ $file → ${base}.md"
+            else
+              echo "❌ Failed to transcribe: $file"
+              return 1
+            fi
+          }
+
+          if [ -n "{{.CLI_ARGS}}" ]; then
+            file="{{.CLI_ARGS}}"
+            if [ ! -f "$file" ]; then
+              echo "❌ File not found: $file"
+              exit 1
+            fi
+            transcribe_file "$file"
+          else
+            shopt -s nullglob
+            files=(*.mp3)
+            if [ ${#files[@]} -eq 0 ]; then
+              echo "❌ No .mp3 files found in {{.DIR}}"
+              exit 1
+            fi
+            echo "🎙️ Found MP3 files:"
+            for f in "${files[@]}"; do echo "  - $f"; done
+            echo ""
+            for f in "${files[@]}"; do
+              transcribe_file "$f"
+            done
+          fi
+          echo ""
+          echo "✓ Done!"
+        shell: bash
+    silent: true
+
+  # === Claude Code ===
+
+  c:
+    desc: "Run Claude Code with opus model (skip permissions)"
+    cmds:
+      - claude --dangerously-skip-permissions --model opus
+    interactive: true
+    silent: true
+
+  # === osgrep ===
+
+  osgrep:start:
+    desc: "Start osgrep serve in background"
+    cmds:
+      - |
+        if pgrep -f "osgrep serve" > /dev/null; then
+          echo "osgrep serve already running (PID: $(pgrep -f 'osgrep serve'))"
+        else
+          nohup osgrep serve > /dev/null 2>&1 &
+          sleep 1
+          echo "osgrep serve started (PID: $!)"
+        fi
+    silent: true
+
+  osgrep:index:
+    desc: "Index project directories for osgrep"
+    cmds:
+      - |
+        echo "Indexing project directories..."
+        echo ""
+
+        dirs=(
+          "{{.HOME}}/Obsidian/obsidian"
+          "{{.HOME}}/ops/example_bot"
+          "{{.HOME}}/dev/whisper-bot"
+        )
+
+        total=${#dirs[@]}
+        current=0
+
+        for dir in "${dirs[@]}"; do
+          current=$((current + 1))
+          name=$(basename "$dir")
+
+          if [ -d "$dir" ]; then
+            echo "[$current/$total] Indexing: $name"
+            osgrep index -p "$dir" 2>&1 | grep -E "^(Indexing|Done|Already)" || true
+          else
+            echo "[$current/$total] Skipped (not found): $name"
+          fi
+        done
+
+        echo ""
+        echo "Done!"
+    silent: true
+
+  osgrep:stop:
+    desc: "Stop osgrep serve and all workers"
+    cmds:
+      - pkill -9 -f "osgrep" && echo "osgrep stopped" || echo "osgrep not running"
+    silent: true
+
+  osgrep:restart:
+    desc: "Restart osgrep serve"
+    cmds:
+      - task: osgrep:stop
+      - sleep 1
+      - task: osgrep:start
+    silent: true
+
+  osgrep:warmup:
+    desc: "Full warmup: index all + start serve + verify ready"
+    cmds:
+      - task: osgrep:stop
+      - task: osgrep:index
+      - task: osgrep:start
+      - |
+        echo ""
+        echo -n "Verifying osgrep is ready"
+        for i in {1..10}; do
+          if osgrep doctor 2>&1 | grep -q "ready to search"; then
+            echo " OK"
+            exit 0
+          fi
+          echo -n "."
+          sleep 1
+        done
+        echo " WARNING: osgrep may not be fully ready"
     silent: true
